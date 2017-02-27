@@ -1,0 +1,6 @@
+# Append this file to Makefile
+flash: all
+	st-flash write $(BUILD_DIR)/$(TARGET).bin 0x8000000
+
+debug:
+	arm-none-eabi-gdb -tui $(BUILD_DIR)/$(TARGET).elf
