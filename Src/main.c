@@ -59,6 +59,12 @@ static void MX_GPIO_Init(void);
 
 /* USER CODE END 0 */
 
+static void delay(uint32_t nCount)
+{
+	while(nCount--)
+		__asm("nop");
+}
+
 int main(void)
 {
 
@@ -86,6 +92,8 @@ int main(void)
   while (1)
   {
   /* USER CODE END WHILE */
+	HAL_GPIO_TogglePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin);
+	delay(500000L);
 
   /* USER CODE BEGIN 3 */
 
