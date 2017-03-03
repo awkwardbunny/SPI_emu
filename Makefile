@@ -29,6 +29,7 @@ C_SOURCES = \
   Src/stm32f4xx_it.c \
   Src/system_stm32f4xx.c \
   Src/stm32f4xx_hal_msp.c \
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c \
