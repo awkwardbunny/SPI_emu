@@ -46,6 +46,7 @@
 /* Exported functions ------------------------------------------------------- */
 
 void SysTick_Handler(void);
+void SPI1_IRQHandler(void);
 
 #ifdef __cplusplus
 }
