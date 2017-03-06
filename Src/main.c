@@ -59,7 +59,7 @@ int cmd_mode = U_CMD;
 int uart_ready = 1;
 char c;
 
-int buff[1024];
+char buff[1024];
 int b_len = 0;
 /* USER CODE END PV */
 
@@ -77,6 +77,16 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+/**
+  * file [B/K/M] [size]
+  * dump <B/K/M size>
+  * read [addr] <length>
+  * write [addr] [length]
+  *
+  ** TODO Use sscanf instead...?
+  ** ISSUE Also, the thing hangs when invalid input
+  *** Ex. 0 bytes... I guess interrupts dont fire for 0
+  */
 int execute_cmd(UART_HandleTypeDef *huart)
 {
 	if(!cmd_len){
@@ -99,13 +109,14 @@ int execute_cmd(UART_HandleTypeDef *huart)
 		HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
 		sprintf(blah, "\r\nExpecting %d bytes of data...\r\n", b_len);
 		HAL_UART_Transmit_IT(huart, sl(blah));
-		HAL_UART_Receive_IT(huart, buff, b_len);
-	}else if(!strncmp("read", cmd_buf, 4)){
+		//HAL_UART_Receive_IT(huart, buff, b_len);
+		HAL_UART_Receive_DMA(huart, buff, b_len);
+	}else if(!strncmp("dump", cmd_buf, 4)){
 		int p_size;
 		if(cmd_len == 4){
 			p_size = b_len;
 		}else{
-			cmd_buf[cmd_len] == '\0';
+			cmd_buf[--cmd_len] == '\0'; // Not sure why "--" is necessary
 			p_size = atoi(cmd_buf+7);
 
 			switch(cmd_buf[5]){
@@ -123,8 +134,33 @@ int execute_cmd(UART_HandleTypeDef *huart)
 		HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
 		sprintf(blah, "\r\nPrinting %d bytes of data...\r\n", p_size);
 		HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
-		HAL_UART_Transmit_IT(huart, buff, b_len);
+		HAL_UART_Transmit_IT(huart, buff, p_size);
 
+	}else if(!strncmp("read ", cmd_buf, 5)){
+		cmd_buf[cmd_len] = 0;
+		int addr, len;
+		int matched = sscanf(cmd_buf, "read %d %d", &addr, &len);
+		if(matched == 2 || matched == 1){
+			if(matched == 1)
+				len = 1;
+			cmd_mode = U_WRITE;
+			char blah[100];
+			HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
+			sprintf(blah, "\r\nPrinting %d bytes of data from %d...\r\n", len, addr);
+			HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
+			HAL_UART_Transmit_IT(huart, buff+addr, len);
+		}
+	}else if(!strncmp("write ", cmd_buf, 6)){
+		cmd_buf[cmd_len] = 0;
+		int addr, len;
+		sscanf(cmd_buf, "write %d %d", &addr, &len);
+		cmd_mode = U_READ;
+		char blah[100];
+		HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
+		sprintf(blah, "\r\nExpecting %d bytes of data for %d...\r\n", len, addr);
+		if(addr+len > b_len) b_len = addr+len;
+		HAL_UART_Transmit_IT(huart, sl(blah));
+		HAL_UART_Receive_DMA(huart, buff+addr, len);
 	}else{
 		HAL_UART_Transmit_IT(huart, sl("\r\nUnrecongnized command!\r\n>"));
 		return -1;
@@ -488,6 +524,8 @@ void Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   while(1) 
   {
+	HAL_GPIO_TogglePin(GPIOD, LD3_Pin);
+	HAL_Delay(500);
   }
   /* USER CODE END Error_Handler */ 
 }
