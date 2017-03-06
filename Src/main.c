@@ -96,6 +96,7 @@ int execute_cmd(UART_HandleTypeDef *huart)
 
 		cmd_mode = U_READ;
 		char blah[100];
+		HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
 		sprintf(blah, "\r\nExpecting %d bytes of data...\r\n", b_len);
 		HAL_UART_Transmit_IT(huart, sl(blah));
 		HAL_UART_Receive_IT(huart, buff, b_len);
@@ -119,6 +120,7 @@ int execute_cmd(UART_HandleTypeDef *huart)
 
 		cmd_mode = U_WRITE;
 		char blah[100];
+		HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
 		sprintf(blah, "\r\nPrinting %d bytes of data...\r\n", p_size);
 		HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
 		HAL_UART_Transmit_IT(huart, buff, b_len);
@@ -153,6 +155,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			break;
 		case U_READ:
 			cmd_mode = U_CMD;
+			HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_RESET);
 			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
 			break;
 	}
@@ -166,6 +169,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 			break;
 		case U_WRITE:
 			cmd_mode = U_CMD;
+			HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
 			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
 			break;
 	}
