@@ -42,6 +42,18 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 
+#define sl(X) (uint8_t *)X, strlen(X)
+
+#define U_CMD 0
+#define U_READ 1
+#define U_WRITE 2
+
+char cmd_buf[64];
+int cmd_len = 0;
+int cmd_mode = U_CMD;
+int uart_ready = 1;
+char c;
+
 int main(void)
 {
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -55,11 +67,38 @@ int main(void)
 	MX_SPI1_Init();
 	MX_USART2_UART_Init();
 
+	HAL_GPIO_WritePin(GPIOD, LD3_Pin|LD4_Pin|LD5_Pin|LD6_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET);
+	HAL_UART_Transmit_IT(&huart2, sl("Ready!\r\n>"));
 	while (1)
 	{
-		HAL_GPIO_TogglePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin);
-		HAL_Delay(1000);
 	}
+}
+
+int execute_cmd(UART_HandleTypeDef *huart)
+{
+	HAL_UART_Transmit_IT(huart, sl("\r\nUnrecognized command!\r\n>"));
+	return -1;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if(cmd_mode == U_CMD){
+		if(c == '\r'){
+			//execute command
+			execute_cmd(huart);
+			cmd_len = 0;
+		}else{
+			cmd_buf[cmd_len++] = c;
+			HAL_UART_Transmit_IT(huart, (uint8_t *)&c, 1);
+		}
+	}
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if(cmd_mode == U_CMD)
+		HAL_UART_Receive_IT(huart, (uint8_t *)&c, 1);
 }
 
 /* System Clock Configuration */
@@ -90,8 +129,7 @@ void SystemClock_Config(void)
 	}
 
 	/* Initializes the CPU, AHB and APB busses clocks */
-	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-	                            |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
 	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
 	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -129,7 +167,7 @@ static void MX_SPI1_Init(void)
 	hspi1.Init.CRCPolynomial = 10;
 	if (HAL_SPI_Init(&hspi1) != HAL_OK)
 	{
-	  Error_Handler();
+		Error_Handler();
 	}
 
 }
@@ -153,24 +191,24 @@ static void MX_USART2_UART_Init(void)
 
 }
 
-/* Configure pins as
-	      * Analog
-	      * Input
-	      * Output
-	      * EVENT_OUT
-	      * EXTI
-	   PC3   ------> I2S2_SD
-	   PA4   ------> I2S3_WS
-	   PB10   ------> I2S2_CK
-	   PC7   ------> I2S3_MCK
-	   PA9   ------> USB_OTG_FS_VBUS
-	   PA10   ------> USB_OTG_FS_ID
-	   PA11   ------> USB_OTG_FS_DM
-	   PA12   ------> USB_OTG_FS_DP
-	   PC10   ------> I2S3_CK
-	   PC12   ------> I2S3_SD
-	   PB6   ------> I2C1_SCL
-	   PB9   ------> I2C1_SDA
+/* Configure pins as 
+		* Analog 
+		* Input 
+		* Output
+		* EVENT_OUT
+		* EXTI
+	PC3   ------> I2S2_SD
+	PA4   ------> I2S3_WS
+	PB10   ------> I2S2_CK
+	PC7   ------> I2S3_MCK
+	PA9   ------> USB_OTG_FS_VBUS
+	PA10   ------> USB_OTG_FS_ID
+	PA11   ------> USB_OTG_FS_DM
+	PA12   ------> USB_OTG_FS_DP
+	PC10   ------> I2S3_CK
+	PC12   ------> I2S3_SD
+	PB6   ------> I2C1_SCL
+	PB9   ------> I2C1_SDA
 */
 static void MX_GPIO_Init(void)
 {
@@ -292,17 +330,18 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
+
 }
 
 /**
-	* @brief  This function is executed in case of error occurrence.
-	* @param  None
-	* @retval None
-	*/
+  * @brief  This function is executed in case of error occurrence.
+  * @param  None
+  * @retval None
+  */
 void Error_Handler(void)
 {
 	/* User can add his own implementation to report the HAL error return state */
-	while(1) 
+	while(1)
 	{
 	}
 }
@@ -310,16 +349,16 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 
 /**
-	 * @brief Reports the name of the source file and the source line number
-	 * where the assert_param error has occurred.
-	 * @param file: pointer to the source file name
-	 * @param line: assert_param error line source number
-	 * @retval None
-	 */
+  * @brief Reports the name of the source file and the source line number
+  * where the assert_param error has occurred.
+  * @param file: pointer to the source file name
+  * @param line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t* file, uint32_t line)
 {
-	/**User can add his own implementation to report the file name and line number,
-	  ex. printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* User can add his own implementation to report the file name and line number,
+    ex. printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
 }
 
 #endif
