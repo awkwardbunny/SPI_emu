@@ -13,7 +13,7 @@ TARGET = SPI_emu
 # debug build?
 DEBUG = 1
 # optimization
-OPT = -O0
+OPT = -O3
 
 #######################################
 # pathes
