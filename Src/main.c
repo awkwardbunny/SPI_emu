@@ -35,6 +35,10 @@
 #include "stm32f4xx_hal.h"
 
 /* USER CODE BEGIN Includes */
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
 #define sl(X) (uint8_t *)X, strlen(X)
 #define U_CMD 0
 #define U_READ 1
@@ -54,6 +58,9 @@ int cmd_len = 0;
 int cmd_mode = U_CMD;
 int uart_ready = 1;
 char c;
+
+int buff[1024];
+int b_len = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,30 +81,94 @@ int execute_cmd(UART_HandleTypeDef *huart)
 {
 	if(!cmd_len){
 		HAL_UART_Transmit_IT(huart, sl("\r\n>"));
-		return 0;
+	}else if(!strncmp("file ", cmd_buf, 5)){
+		cmd_buf[cmd_len] == '\0';
+		b_len = atoi(cmd_buf+7);
+
+		switch(cmd_buf[5]){
+			case 'M':
+				b_len *= 1024;
+			case 'K':
+				b_len *= 1024;
+			case 'B':
+				break;
+		}
+
+		cmd_mode = U_READ;
+		char blah[100];
+		sprintf(blah, "\r\nExpecting %d bytes of data...\r\n", b_len);
+		HAL_UART_Transmit_IT(huart, sl(blah));
+		HAL_UART_Receive_IT(huart, buff, b_len);
+	}else if(!strncmp("read", cmd_buf, 4)){
+		int p_size;
+		if(cmd_len == 4){
+			p_size = b_len;
+		}else{
+			cmd_buf[cmd_len] == '\0';
+			p_size = atoi(cmd_buf+7);
+
+			switch(cmd_buf[5]){
+				case 'M':
+					p_size *= 1024;
+				case 'K':
+					p_size *= 1024;
+				case 'B':
+					break;
+			}
+		}
+
+		cmd_mode = U_WRITE;
+		char blah[100];
+		sprintf(blah, "\r\nPrinting %d bytes of data...\r\n", p_size);
+		HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
+		HAL_UART_Transmit_IT(huart, buff, b_len);
+
 	}else{
 		HAL_UART_Transmit_IT(huart, sl("\r\nUnrecongnized command!\r\n>"));
 		return -1;
 	}
+
+	return 0;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if(cmd_mode == U_CMD){
-		if(c == '\r'){
-			execute_cmd(huart);
-			cmd_len = 0;
-		}else{
-			cmd_buf[cmd_len++] = c;
-			HAL_UART_Transmit_IT(huart, (uint8_t *)&c, 1);
-		}
+	// LOL switch inside switch... CANCER
+	switch(cmd_mode){
+		case U_CMD:
+			switch(c){
+				case '\r':
+					execute_cmd(huart);
+					cmd_len = 0;
+					break;
+				case '\b':
+					cmd_buf[--cmd_len] = '\0';
+					HAL_UART_Transmit_IT(huart, (uint8_t *)"\b \b", 3);
+					break;
+				default:
+					cmd_buf[cmd_len++] = c;
+					HAL_UART_Transmit_IT(huart, (uint8_t *)&c, 1);
+					break;
+			}
+			break;
+		case U_READ:
+			cmd_mode = U_CMD;
+			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
+			break;
 	}
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if(cmd_mode == U_CMD)
-		HAL_UART_Receive_IT(huart, (uint8_t *)&c, 1);
+	switch(cmd_mode){
+		case U_CMD:
+			HAL_UART_Receive_IT(huart, (uint8_t *)&c, 1);
+			break;
+		case U_WRITE:
+			cmd_mode = U_CMD;
+			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
+			break;
+	}
 }
 /* USER CODE END 0 */
 
