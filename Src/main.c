@@ -40,6 +40,8 @@
 #include <stdio.h>
 
 #define sl(X) (uint8_t *)X, strlen(X)
+#define BUFF_SIZE 0x10000 // 512k = 0x80000, 64k = 0x10000
+
 #define U_CMD 0
 #define U_READ 1
 #define U_WRITE 2
@@ -53,14 +55,11 @@ DMA_HandleTypeDef hdma_usart2_rx;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-char cmd_buf[64];
-int cmd_len = 0;
-int cmd_mode = U_CMD;
-int uart_ready = 1;
-char c;
+uint8_t buff[BUFF_SIZE];
 
-char buff[1024];
-int b_len = 0;
+uint8_t cmd_buff[17];
+int u_mode;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -83,131 +82,102 @@ static void MX_USART2_UART_Init(void);
   * read [addr] <length>
   * write [addr] [length]
   *
-  ** TODO Use sscanf instead...?
+  * Commands are now fixed-length of 16
+  *  and padded with a space. (0x20)
+  * Above has changed to:
+  *  fb [size]
+  *  fk [size]
+  *  fm [size]
+  *  d
+  *  db [size]
+  *  dk [size]
+  *  dm [size]
+  *
   ** ISSUE Also, the thing hangs when invalid input
   *** Ex. 0 bytes... I guess interrupts dont fire for 0
   */
-int execute_cmd(UART_HandleTypeDef *huart)
+void execute_cmd(UART_HandleTypeDef *huart)
 {
-	if(!cmd_len){
-		HAL_UART_Transmit_IT(huart, sl("\r\n>"));
-	}else if(!strncmp("file ", cmd_buf, 5)){
-		cmd_buf[cmd_len] == '\0';
-		b_len = atoi(cmd_buf+7);
+	// Determine length of string
+	int length = 16;
+	for(; length; length--)
+		if(cmd_buff[length-1] != ' ')
+			break;
 
-		switch(cmd_buf[5]){
-			case 'M':
-				b_len *= 1024;
-			case 'K':
-				b_len *= 1024;
-			case 'B':
-				break;
-		}
+	// Null terminate that shit
+	cmd_buff[length] = '\0';
 
-		cmd_mode = U_READ;
-		char blah[100];
-		HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
-		sprintf(blah, "\r\nExpecting %d bytes of data...\r\n", b_len);
-		HAL_UART_Transmit_IT(huart, sl(blah));
-		//HAL_UART_Receive_IT(huart, buff, b_len);
-		HAL_UART_Receive_DMA(huart, buff, b_len);
-	}else if(!strncmp("dump", cmd_buf, 4)){
-		int p_size;
-		if(cmd_len == 4){
-			p_size = b_len;
-		}else{
-			cmd_buf[--cmd_len] == '\0'; // Not sure why "--" is necessary
-			p_size = atoi(cmd_buf+7);
-
-			switch(cmd_buf[5]){
-				case 'M':
-					p_size *= 1024;
-				case 'K':
-					p_size *= 1024;
-				case 'B':
-					break;
-			}
-		}
-
-		cmd_mode = U_WRITE;
-		char blah[100];
-		HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
-		sprintf(blah, "\r\nPrinting %d bytes of data...\r\n", p_size);
-		HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
-		HAL_UART_Transmit_IT(huart, buff, p_size);
-
-	}else if(!strncmp("read ", cmd_buf, 5)){
-		cmd_buf[cmd_len] = 0;
-		int addr, len;
-		int matched = sscanf(cmd_buf, "read %d %d", &addr, &len);
-		if(matched == 2 || matched == 1){
-			if(matched == 1)
-				len = 1;
-			cmd_mode = U_WRITE;
-			char blah[100];
-			HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
-			sprintf(blah, "\r\nPrinting %d bytes of data from %d...\r\n", len, addr);
-			HAL_UART_Transmit(huart, sl(blah), HAL_MAX_DELAY);
-			HAL_UART_Transmit_IT(huart, buff+addr, len);
-		}
-	}else if(!strncmp("write ", cmd_buf, 6)){
-		cmd_buf[cmd_len] = 0;
-		int addr, len;
-		sscanf(cmd_buf, "write %d %d", &addr, &len);
-		cmd_mode = U_READ;
-		char blah[100];
-		HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
-		sprintf(blah, "\r\nExpecting %d bytes of data for %d...\r\n", len, addr);
-		if(addr+len > b_len) b_len = addr+len;
-		HAL_UART_Transmit_IT(huart, sl(blah));
-		HAL_UART_Receive_DMA(huart, buff+addr, len);
-	}else{
-		HAL_UART_Transmit_IT(huart, sl("\r\nUnrecongnized command!\r\n>"));
-		return -1;
+	// Some cases
+	if(cmd_buff[0] == 'd' && length == 1){
+		u_mode = U_WRITE;
+		HAL_UART_Transmit_DMA(huart, buff, BUFF_SIZE);
+		return;
 	}
 
-	return 0;
+	if(!length){
+		HAL_UART_Transmit_IT(huart, sl("\r\n>"));
+		return;
+	}
+
+	int size = 0;
+	switch(cmd_buff[0]){
+		case 'f':
+			if(length < 4){
+				HAL_UART_Transmit_IT(huart, sl("Invalid command!\r\n>"));
+				return;
+			}
+
+			size = atoi(cmd_buff+3);
+			switch(cmd_buff[1]){
+				case 'm':
+					size *= 1024;
+				case 'k':
+					size *= 1024;
+			}
+
+			u_mode = U_READ;
+			HAL_UART_Transmit(huart, sl("Expecting data...\r\n"), HAL_MAX_DELAY);
+			HAL_UART_Receive_DMA(huart, buff, size);
+			break;
+		case 'd':
+			if(length < 4){
+				HAL_UART_Transmit_IT(huart, sl("Invalid command!\r\n>"));
+				return;
+			}
+
+			size = atoi(cmd_buff+3);
+			switch(cmd_buff[1]){
+				case 'm':
+					size *= 1024;
+				case 'k':
+					size *= 1024;
+			}
+
+			u_mode = U_WRITE;
+			HAL_UART_Transmit_DMA(huart, buff, size);
+			break;
+		default:
+			HAL_UART_Transmit_IT(huart, sl("Unknown command!\r\n>"));
+	}
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	// LOL switch inside switch... CANCER
-	switch(cmd_mode){
-		case U_CMD:
-			switch(c){
-				case '\r':
-					execute_cmd(huart);
-					cmd_len = 0;
-					break;
-				case '\b':
-					cmd_buf[--cmd_len] = '\0';
-					HAL_UART_Transmit_IT(huart, (uint8_t *)"\b \b", 3);
-					break;
-				default:
-					cmd_buf[cmd_len++] = c;
-					HAL_UART_Transmit_IT(huart, (uint8_t *)&c, 1);
-					break;
-			}
-			break;
-		case U_READ:
-			cmd_mode = U_CMD;
-			HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_RESET);
-			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
-			break;
+	if(u_mode == U_CMD){
+		execute_cmd(huart);
+	}else{
+		u_mode = U_CMD;
+		HAL_UART_Transmit_IT(huart, sl("\r\n>"));
 	}
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-	switch(cmd_mode){
-		case U_CMD:
-			HAL_UART_Receive_IT(huart, (uint8_t *)&c, 1);
-			break;
-		case U_WRITE:
-			cmd_mode = U_CMD;
-			HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
-			HAL_UART_Transmit_IT(huart, sl("\r\n>"));
-			break;
+	if(u_mode == U_CMD){
+		HAL_UART_Receive_IT(huart, cmd_buff, 16);
+	}else{
+		u_mode = U_CMD;
+		HAL_UART_Transmit_IT(huart, sl("--END--\r\n>"));
 	}
 }
 /* USER CODE END 0 */
@@ -235,7 +205,9 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
 	HAL_GPIO_WritePin(GPIOD, LD3_Pin|LD4_Pin|LD5_Pin|LD6_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
+
+	u_mode = U_CMD;
 	HAL_UART_Transmit_IT(&huart2, sl("Ready!\r\n>"));
   /* USER CODE END 2 */
 
@@ -335,7 +307,7 @@ static void MX_USART2_UART_Init(void)
 {
 
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
+  huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
