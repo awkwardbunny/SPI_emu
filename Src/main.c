@@ -85,13 +85,11 @@ static void MX_USART2_UART_Init(void);
   * Commands are now fixed-length of 16
   *  and padded with a space. (0x20)
   * Above has changed to:
-  *  fb [size]
-  *  fk [size]
-  *  fm [size]
+  *  f<b/k/m> [size]
   *  d
-  *  db [size]
-  *  dk [size]
-  *  dm [size]
+  *  d<b/k/m> [size]
+  *  r<b/k/m><b/k/m> [offset] [length]
+  *  w<b/k/m><b/k/m> [offset] [length]
   *
   ** ISSUE Also, the thing hangs when invalid input
   *** Ex. 0 bytes... I guess interrupts dont fire for 0
@@ -119,26 +117,11 @@ void execute_cmd(UART_HandleTypeDef *huart)
 		return;
 	}
 
+	int offset = 0;
 	int size = 0;
+	int last = length-1;
 	switch(cmd_buff[0]){
 		case 'f':
-			if(length < 4){
-				HAL_UART_Transmit_IT(huart, sl("Invalid command!\r\n>"));
-				return;
-			}
-
-			size = atoi(cmd_buff+3);
-			switch(cmd_buff[1]){
-				case 'm':
-					size *= 1024;
-				case 'k':
-					size *= 1024;
-			}
-
-			u_mode = U_READ;
-			HAL_UART_Transmit(huart, sl("Expecting data...\r\n"), HAL_MAX_DELAY);
-			HAL_UART_Receive_DMA(huart, buff, size);
-			break;
 		case 'd':
 			if(length < 4){
 				HAL_UART_Transmit_IT(huart, sl("Invalid command!\r\n>"));
@@ -153,8 +136,46 @@ void execute_cmd(UART_HandleTypeDef *huart)
 					size *= 1024;
 			}
 
-			u_mode = U_WRITE;
-			HAL_UART_Transmit_IT(huart, buff, size);
+			if(cmd_buff[0] == 'd'){
+				u_mode = U_WRITE;
+				HAL_UART_Transmit_IT(huart, buff, size);
+			}else{
+				u_mode = U_READ;
+				HAL_UART_Transmit(huart, sl("Expecting data...\r\n"), HAL_MAX_DELAY);
+				HAL_UART_Receive_DMA(huart, buff, size);
+			}
+			break;
+		case 'r':
+		case 'w':
+			while(cmd_buff[last] != ' ')
+				last--;
+			cmd_buff[last++] = 0;
+
+			size = atoi(cmd_buff+last);
+			offset = atoi(cmd_buff+4);
+
+			switch(cmd_buff[1]){
+				case 'm':
+					offset *= 1024;
+				case 'k':
+					offset *= 1024;
+			}
+
+			switch(cmd_buff[2]){
+				case 'm':
+					size *= 1024;
+				case 'k':
+					size *= 1024;
+			}
+
+			if(cmd_buff[0] == 'w'){
+				u_mode = U_READ;
+				HAL_UART_Transmit(huart, sl("Expecting data...\r\n"), HAL_MAX_DELAY);
+				HAL_UART_Receive_DMA(huart, buff+offset, size);
+			}else{
+				u_mode = U_WRITE;
+				HAL_UART_Transmit_IT(huart, buff+offset, size);
+			}
 			break;
 		default:
 			HAL_UART_Transmit_IT(huart, sl("Unknown command!\r\n>"));
