@@ -110,7 +110,7 @@ void execute_cmd(UART_HandleTypeDef *huart)
 	// Some cases
 	if(cmd_buff[0] == 'd' && length == 1){
 		u_mode = U_WRITE;
-		HAL_UART_Transmit_DMA(huart, buff, BUFF_SIZE);
+		HAL_UART_Transmit_IT(huart, buff, BUFF_SIZE);
 		return;
 	}
 
@@ -154,7 +154,7 @@ void execute_cmd(UART_HandleTypeDef *huart)
 			}
 
 			u_mode = U_WRITE;
-			HAL_UART_Transmit_DMA(huart, buff, size);
+			HAL_UART_Transmit_IT(huart, buff, size);
 			break;
 		default:
 			HAL_UART_Transmit_IT(huart, sl("Unknown command!\r\n>"));
