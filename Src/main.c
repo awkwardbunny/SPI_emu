@@ -66,6 +66,7 @@ DMA_HandleTypeDef hdma_usart2_rx;
 #define DEV_ID 0xab
 #define MAN_DEV_ID 0x90
 #define JEDEC_ID 0x9f
+char *MANID = "\xEF\x30\x13";
 
 #define S_CMD 1
 #define S_INPUT 2
@@ -78,7 +79,6 @@ uint8_t s_mode;
 uint8_t test_data = 0x42;
 
 /* USER CODE END PV */
-
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void Error_Handler(void);
@@ -94,6 +94,7 @@ static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN 0 */
 char b[2];
+uint8_t blah[4];
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi){
 	if(s_mode == S_CMD){
 		switch(cmd_byte){
@@ -101,6 +102,11 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi){
 				HAL_UART_Transmit(&huart2, sl("Read command!\r\n"), HAL_MAX_DELAY);
 				s_mode = S_INPUT;
 				HAL_SPI_Receive_IT(hspi, addr, 3);
+				break;
+			case JEDEC_ID:
+				HAL_UART_Transmit(&huart2, sl("Requested chip ID\r\n"), HAL_MAX_DELAY);
+				s_mode = S_OUTPUT;
+				HAL_SPI_Transmit_IT(hspi, MANID, 3);
 				break;
 			default:
 				HAL_UART_Transmit(&huart2, sl("Unknown command byte: "), HAL_MAX_DELAY);
@@ -113,25 +119,30 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi){
 		switch(cmd_byte){
 			case R_DATA:
 				s_mode = S_OUTPUT;
-				HAL_SPI_Transmit_IT(hspi, &test_data, 1);
-				break;
-		}
-	}else if(s_mode == S_OUTPUT){
-		switch(cmd_byte){
-			case R_DATA:
-				s_mode = S_CMD;
-				HAL_SPI_Receive_IT(hspi, &cmd_byte, 1);
+				HAL_SPI_TransmitReceive_IT(hspi, &test_data, blah, 1);
 				break;
 		}
 	}
 }
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
+	HAL_SPI_TxCpltCallback(hspi);
+}
+
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-	/*
-	uint8_t tb = 0x43;
-	HAL_SPI_TransmitReceive_IT(&hspi1, &tb, buff, 1);
-	*/
+	if(s_mode == S_OUTPUT){
+		switch(cmd_byte){
+			case R_DATA:
+				s_mode = S_CMD;
+				HAL_SPI_Receive_IT(hspi, &cmd_byte, 1);
+				break;
+			case JEDEC_ID:
+				s_mode = S_CMD;
+				HAL_SPI_Receive_IT(hspi, &cmd_byte, 1);
+				break;
+		}
+	}
 }
 /* USER CODE END 0 */
 
@@ -243,7 +254,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.NSS = SPI_NSS_HARD_INPUT;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
